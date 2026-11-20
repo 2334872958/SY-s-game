@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>薛定谔的特工 - Schrödinger's Agent</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: #131b2e;
+      --border: #233354;
+      --cyan: #00f0ff;
+      --magenta: #ff0077;
+      --gold: #ffb703;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+      padding: 12px;
+    }
+    header {
+      width: 860px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .title-group h1 {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, var(--cyan), var(--magenta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .title-group p {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .hud {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+    }
+    .hud-badge {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
+    .game-wrapper {
+      position: relative;
+      width: 860px;
+      height: 520px;
+      background: #060911;
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 0 40px rgba(0, 240, 255, 0.1), 0 20px 40px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    /* Control Bar */
+    .controls-bar {
+      width: 860px;
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .key-hint {
+      display: inline-block;
+      background: var(--panel);
+      color: var(--cyan);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-family: monospace;
+      margin: 0 2px;
+    }
+    .btn-reset {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-reset:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: var(--cyan);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="title-group">
+    <h1>⚛️ 薛定谔的特工 <span>SCHRÖDINGER'S AGENT</span></h1>
+    <p>量子解谜动作横版 · 操纵叠加态与坍缩通关</p>
+  </div>
+  <div class="hud">
+    <div style="display: flex; gap: 6px; align-items: center;">
+      <button class="btn-reset" onclick="initLevel(0)">第 1 关</button>
+      <button class="btn-reset" style="border-color: var(--magenta); color: var(--magenta);" onclick="initLevel(1)">🚨 第 2 关</button>
+      <button class="btn-reset" onclick="initLevel(2)">第 3 关</button>
+      <button class="btn-reset" id="btnBgmToggle" style="border-color: var(--cyan); color: var(--cyan);" onclick="toggleBGM()">🎵 音乐: 开启</button>
+    </div>
+    <div class="hud-badge" id="levelName">第 1 关：双缝叠加</div>
+    <div class="hud-badge" id="quantumState" style="color: var(--cyan);">状态：单一实在态 |0⟩</div>
+  </div>
+</header>
+
+<div class="game-wrapper">
+  <canvas id="gameCanvas" width="860" height="520"></canvas>
+</div>
+
+<div class="controls-bar">
+  <div>
+    <span>移动：<span class="key-hint">A</span><span class="key-hint">D</span></span>
+    <span style="margin-left: 10px;">轻巧跳跃：<span class="key-hint">W</span> 或 <span class="key-hint">空格</span></span>
+    <span style="margin-left: 10px;">量子虚影：<span class="key-hint" style="color: var(--magenta);">Q</span> (在踏板上按Q留下虚影压住机关)</span>
+    <span style="margin-left: 10px;">重置：<span class="key-hint">R</span></span>
+  </div>
+  <button class="btn-reset" onclick="resetCurrentLevel()">重新开始本关 (R)</button>
+</div>
+
+<script>
+// --- Web Audio API (全程序合成音效与背景音乐 BGM) ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// BGM 状态与音序器
+let bgmEnabled = true;
+let bgmStep = 0;
+let bgmTimer = null;
+
+// 科幻赛博朋克音阶与和弦序列 (A小调量子潜行氛围)
+const BASS_NOTES = [110, 110, 130.81, 110, 98.00, 98.00, 123.47, 98.00, 87.31, 87.31, 110, 87.31, 82.41, 82.41, 123.47, 82.41]; // A2, G2, F2, E2
+const ARPEGGIO_NOTES = [220, 261.63, 329.63, 440, 392, 329.63, 261.63, 196, 174.61, 220, 261.63, 349.23, 164.81, 220, 246.94, 329.63];
+
+function playBGMStep() {
+  if (!bgmEnabled) return;
+  if (audioCtx.state === 'suspended') return;
+
+  const now = audioCtx.currentTime;
+
+  // 1. 低音底鼓/脉冲 (Deep Synth Bassline)
+  const bassFreq = BASS_NOTES[bgmStep % BASS_NOTES.length];
+  const bassOsc = audioCtx.createOscillator();
+  const bassGain = audioCtx.createGain();
+  bassOsc.type = 'triangle';
+  bassOsc.frequency.setValueAtTime(bassFreq, now);
+  bassGain.gain.setValueAtTime(0.08, now);
+  bassGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+  bassOsc.connect(bassGain);
+  bassGain.connect(audioCtx.destination);
+  bassOsc.start(now);
+  bassOsc.stop(now + 0.18);
+
+  // 2. 电子节拍打击声 (Hi-hat / Noise Click) 每逢奇数步
+  if (bgmStep % 2 === 1) {
+    const hatOsc = audioCtx.createOscillator();
+    const hatGain = audioCtx.createGain();
+    hatOsc.type = 'square';
+    hatOsc.frequency.setValueAtTime(1200, now);
+    hatGain.gain.setValueAtTime(0.015, now);
+    hatGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+    hatOsc.connect(hatGain);
+    hatGain.connect(audioCtx.destination);
+    hatOsc.start(now);
+    hatOsc.stop(now + 0.05);
+  }
+
+  // 3. 空灵赛博琶音 (Cyberpunk Arpeggio)
+  const arpFreq = ARPEGGIO_NOTES[bgmStep % ARPEGGIO_NOTES.length];
+  const arpOsc = audioCtx.createOscillator();
+  const arpGain = audioCtx.createGain();
+  arpOsc.type = 'sine';
+  arpOsc.frequency.setValueAtTime(arpFreq, now);
+  arpGain.gain.setValueAtTime(0.025, now);
+  arpGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+  arpOsc.connect(arpGain);
+  arpGain.connect(audioCtx.destination);
+  arpOsc.start(now);
+  arpOsc.stop(now + 0.22);
+
+  bgmStep++;
+}
+
+function startBGM() {
+  if (bgmTimer) clearInterval(bgmTimer);
+  // 每 150ms 走一步（约 100 BPM，沉稳冷静的特工潜行感）
+  bgmTimer = setInterval(playBGMStep, 150);
+}
+
+function toggleBGM() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  bgmEnabled = !bgmEnabled;
+  const btn = document.getElementById('btnBgmToggle');
+  if (bgmEnabled) {
+    btn.textContent = "🎵 音乐: 开启";
+    btn.style.borderColor = "var(--cyan)";
+    btn.style.color = "var(--cyan)";
+    startBGM();
+    showMessage("🎵 背景音乐已开启 (特工潜行赛博音轨)", 80);
+  } else {
+    btn.textContent = "🔇 音乐: 静音";
+    btn.style.borderColor = "var(--text-dim)";
+    btn.style.color = "var(--text-dim)";
+    showMessage("🔇 背景音乐已静音", 80);
+  }
+}
+
+// 首次键盘或鼠标交互激活 AudioContext 与 BGM
+window.addEventListener('keydown', () => {
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().then(() => {
+      if (bgmEnabled && !bgmTimer) startBGM();
+    });
+  } else if (bgmEnabled && !bgmTimer) {
+    startBGM();
+  }
+}, { once: false });
+
+window.addEventListener('click', () => {
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().then(() => {
+      if (bgmEnabled && !bgmTimer) startBGM();
+    });
+  } else if (bgmEnabled && !bgmTimer) {
+    startBGM();
+  }
+}, { once: false });
+function playSound(type) {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  if (type === 'jump') {
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(160, now);
+    osc.frequency.exponentialRampToValueAtTime(380, now + 0.12);
+    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+    osc.start(now);
+    osc.stop(now + 0.12);
+  } else if (type === 'split') {
+    // 叠加态激活音效（神秘双音弦）
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(700, now + 0.2);
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  } else if (type === 'collapse') {
+    // 观测坍缩警报音（急促断电声）
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(500, now);
+    osc.frequency.linearRampToValueAtTime(80, now + 0.18);
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+    osc.start(now);
+    osc.stop(now + 0.18);
+  } else if (type === 'win') {
+    // 胜利琶音
+    [440, 554, 659, 880].forEach((freq, i) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.12, now + i * 0.08);
+      g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.25);
+      o.start(now + i * 0.08);
+      o.stop(now + i * 0.08 + 0.25);
+    });
+  } else if (type === 'applause') {
+    // 真实全场热烈掌声算法合成 (Dense White Noise Bursts with Low-pass Filtering)
+    const bufferSize = audioCtx.sampleRate * 2.8; // 2.8 秒掌声
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    // 几百次随机手掌拍击合成
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1);
+    }
+
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+
+    // 带通/低通滤波模拟肉掌拍击频响 (800Hz - 2200Hz)
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1400, now);
+    filter.Q.setValueAtTime(1.2, now);
+
+    const clapGain = audioCtx.createGain();
+    clapGain.gain.setValueAtTime(0.01, now);
+    clapGain.gain.linearRampToValueAtTime(0.35, now + 0.3); // 迅速响起
+    clapGain.gain.setValueAtTime(0.35, now + 2.0);
+    clapGain.gain.exponentialRampToValueAtTime(0.001, now + 2.8); // 逐渐平息
+
+    noise.connect(filter);
+    filter.connect(clapGain);
+    clapGain.connect(audioCtx.destination);
+
+    noise.start(now);
+    noise.stop(now + 2.8);
+  } else if (type === 'die') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.linearRampToValueAtTime(40, now + 0.25);
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+    osc.start(now);
+    osc.stop(now + 0.25);
+  }
+}
+
+// --- 游戏主引擎 ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const WIDTH = canvas.width;
+const HEIGHT = canvas.height;
+
+// 键盘监听
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+    e.preventDefault();
+  }
+  keys[e.code] = true;
+
+  if (e.code === 'KeyQ') {
+    toggleSuperposition();
+  }
+  if (e.code === 'KeyR') {
+    resetCurrentLevel();
+  }
+});
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+});
+
+// 粒子系统
+let particles = [];
+function addParticles(x, y, color, count = 12) {
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 6,
+      vy: (Math.random() - 0.5) * 6,
+      size: Math.random() * 3 + 2,
+      color,
+      life: 1.0,
+      decay: Math.random() * 0.04 + 0.02
+    });
+  }
+}
+
+// 特工定义
+class Agent {
+  constructor(x, y, color) {
+    this.x = x;
+    this.y = y;
+    this.w = 20;
+    this.h = 32;
+    this.vx = 0;
+    this.vy = 0;
+    this.grounded = false;
+    this.color = color;
+  }
+  update(gravity, platforms) {
+    if (this.isStationaryShadow) {
+      // 量子驻留虚影：牢牢留在原地压住机关，不随键盘跑动
+      this.vx = 0;
+      this.vy += gravity;
+      if (this.vy > 12) this.vy = 12;
+      this.y += this.vy;
+      this.grounded = false;
+      for (let p of platforms) {
+        if (p.isClosed && checkAABB(this, p)) {
+          if (this.vy > 0) {
+            this.y = p.y - this.h;
+            this.vy = 0;
+            this.grounded = true;
+          }
+        }
+      }
+      return;
+    }
+
+    // 左右移动
+    const speed = 4.0;
+    if (keys['KeyA'] || keys['ArrowLeft']) this.vx = -speed;
+    else if (keys['KeyD'] || keys['ArrowRight']) this.vx = speed;
+    else this.vx = 0;
+
+    // 跳跃 (轻巧丝滑，轻松跳越小障碍)
+    if ((keys['KeyW'] || keys['Space'] || keys['ArrowUp']) && this.grounded) {
+      this.vy = -10.2;
+      this.grounded = false;
+      playSound('jump');
+      addParticles(this.x + this.w/2, this.y + this.h, this.color, 6);
+    }
+
+    // 重力
+    this.vy += gravity;
+    if (this.vy > 12) this.vy = 12;
+
+    // 合并实体平台与当前处于关闭锁定状态的量子大门
+    const closedDoors = (currentLevel && currentLevel.doors) ? currentLevel.doors.filter(d => d.isClosed) : [];
+    const solidObjects = [...platforms, ...closedDoors];
+
+    // X 轴碰撞
+    this.x += this.vx;
+    for (let p of solidObjects) {
+      if (checkAABB(this, p)) {
+        if (this.vx > 0) this.x = p.x - this.w;
+        else if (this.vx < 0) this.x = p.x + p.w;
+
+        if (p.reqButtons) {
+          showMessage("🔒 密室大门已锁死！必须同时压下【踏板 1】与【踏板 2】才能通行！", 40);
+        }
+      }
+    }
+
+    // Y 轴碰撞
+    this.y += this.vy;
+    this.grounded = false;
+    for (let p of solidObjects) {
+      if (checkAABB(this, p)) {
+        if (this.vy > 0) {
+          this.y = p.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
+        } else if (this.vy < 0) {
+          this.y = p.y + p.h;
+          this.vy = 0;
+        }
+      }
+    }
+
+    // 屏幕边缘约束
+    if (this.x < 0) this.x = 0;
+    if (this.x + this.w > WIDTH) this.x = WIDTH - this.w;
+  }
+
+  draw(ctx, isGhost = false) {
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = this.color;
+    ctx.fillStyle = this.color;
+    if (isGhost) ctx.globalAlpha = 0.8;
+
+    // 绘制小人主体
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+
+    // 眼睛/面罩
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = 0;
+    const lookRight = this.vx >= 0;
+    const eyeX = lookRight ? this.x + 12 : this.x + 3;
+    ctx.fillRect(eyeX, this.y + 7, 5, 4);
+
+    // 量子光环指示器
+    if (isGhost) {
+      ctx.strokeStyle = this.color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(this.x - 3, this.y - 3, this.w + 6, this.h + 6);
+    }
+    ctx.restore();
+  }
+}
+
+function checkAABB(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// --- 关卡数据设计 ---
+let currentLevelIndex = 0;
+let inSuperposition = false;
+let agentA = null; // |0>
+let agentB = null; // |1>
+let activeAgent = null; // 当前主要操控参照
+let currentLevel = null;
+let levelWon = false;
+let allLevelsCleared = false; // 通关通报状态
+let messageBanner = "";
+let bannerTimer = 0;
+
+const LEVELS = [
+  // 关卡 1：双缝叠加教学关（必须一分为二同时踩踏板开门）
+  {
+    name: "关卡 1：双缝叠加入门 (Superposition Basics)",
+    desc: "大门完全封锁！走到【踏板 1】按 [Q] 留下虚影压住踏板，本体踩下【踏板 2】才能开门！",
+    start: { x: 50, y: 390 },
+    platforms: [
+      // 边界与地板
+      { x: 0, y: 460, w: 860, h: 60, isClosed: true, color: '#1b263b' },
+      // 终点隔离实心天花板墙壁（彻底封死上方，无法翻越）
+      { x: 720, y: 0, w: 140, h: 360, isClosed: true, color: '#131b2e' },
+      // 楼板与台阶
+      { x: 440, y: 330, w: 260, h: 20, isClosed: true, color: '#1b263b' },
+      { x: 260, y: 390, w: 90, h: 16, isClosed: true, color: '#273854' },
+      { x: 350, y: 360, w: 90, h: 16, isClosed: true, color: '#273854' }
+    ],
+    buttons: [
+      { id: 1, x: 160, y: 452, w: 42, h: 8, pressed: false, color: '#00f0ff', label: '踏板 1' },
+      { id: 2, x: 540, y: 322, w: 42, h: 8, pressed: false, color: '#ff0077', label: '踏板 2' }
+    ],
+    doors: [
+      { x: 720, y: 360, w: 20, h: 100, isClosed: true, reqButtons: [1, 2], color: '#ffb703' }
+    ],
+    cameras: [],
+    exit: { x: 745, y: 380, w: 100, h: 80 }
+  },
+
+  // 关卡 2：观测者效应（红外巡逻灯扫描，叠加态被照到会坍缩）
+  {
+    name: "关卡 2：观测者巡逻灯 (The Observer Beam)",
+    desc: "已移除所有尖刺陷阱！在左侧踏板 1 按 [Q] 留虚影，沿台阶上二楼踩踏板 2（避开红光）即可开门！",
+    start: { x: 40, y: 400 },
+    platforms: [
+      // 地板
+      { x: 0, y: 460, w: 860, h: 60, isClosed: true, color: '#1b263b' },
+      // 终点隔离实心天花板墙壁（彻底堵死上方偷跑，必须通过大门）
+      { x: 720, y: 0, w: 140, h: 360, isClosed: true, color: '#131b2e' },
+      // 踏板 1 上方的遮蔽顶棚（视觉与物理安全区）
+      { x: 20, y: 350, w: 180, h: 16, isClosed: true, color: '#273854' },
+      // 极其平缓连续的台阶，绝无尖刺障碍、绝无坠崖风险！
+      { x: 240, y: 410, w: 100, h: 50, isClosed: true, color: '#273854' },
+      { x: 360, y: 360, w: 100, h: 100, isClosed: true, color: '#273854' },
+      { x: 480, y: 310, w: 220, h: 150, isClosed: true, color: '#1b263b' }
+    ],
+    buttons: [
+      { id: 1, x: 80, y: 452, w: 50, h: 8, pressed: false, color: '#00f0ff', label: '踏板 1 (安全区)' },
+      { id: 2, x: 560, y: 302, w: 50, h: 8, pressed: false, color: '#ff0077', label: '踏板 2' }
+    ],
+    doors: [
+      { x: 720, y: 360, w: 20, h: 100, isClosed: true, reqButtons: [1, 2], color: '#ffb703' }
+    ],
+    cameras: [
+      // 巡逻探照灯：只缓慢扫过中间区域，速度极慢 (0.006)，扫向右边时有充足 5 秒安全空档！
+      { x: 420, y: 70, angle: 0.15, range: 0.4, speed: 0.006, length: 380, dir: 1 }
+    ],
+    exit: { x: 745, y: 380, w: 100, h: 80 }
+  },
+
+  // 关卡 3：量子突围与双重观测
+  {
+    name: "关卡 3：双重观测突围 (Quantum Breakout)",
+    desc: "两盏探照灯交替扫射！观察运动周期，利用盲区展开叠加态解开双重密保门！",
+    start: { x: 50, y: 400 },
+    platforms: [
+      { x: 0, y: 460, w: 860, h: 60, isClosed: true, color: '#1b263b' },
+      // 终点隔离实心天花板墙壁
+      { x: 740, y: 0, w: 120, h: 360, isClosed: true, color: '#131b2e' },
+      // 左侧高台与右侧高台
+      { x: 140, y: 330, w: 160, h: 18, isClosed: true, color: '#1b263b' },
+      { x: 500, y: 330, w: 200, h: 18, isClosed: true, color: '#1b263b' },
+      { x: 340, y: 380, w: 110, h: 16, isClosed: true, color: '#273854' },
+      // 小尖刺
+      { x: 380, y: 450, w: 36, h: 10, isSpike: true }
+    ],
+    buttons: [
+      { id: 1, x: 200, y: 322, w: 42, h: 8, pressed: false, color: '#00f0ff', label: '踏板 A' },
+      { id: 2, x: 580, y: 322, w: 42, h: 8, pressed: false, color: '#ff0077', label: '踏板 B' }
+    ],
+    doors: [
+      { x: 740, y: 360, w: 20, h: 100, isClosed: true, reqButtons: [1, 2], color: '#ffb703' }
+    ],
+    cameras: [
+      { x: 260, y: 60, angle: -0.3, range: 0.7, speed: 0.022, length: 380, dir: 1 },
+      { x: 580, y: 60, angle: 0.3, range: 0.7, speed: 0.028, length: 380, dir: -1 }
+    ],
+    exit: { x: 760, y: 380, w: 90, h: 80 }
+  }
+];
+
+function initLevel(index) {
+  currentLevelIndex = index;
+  currentLevel = JSON.parse(JSON.stringify(LEVELS[index])); // 深拷贝
+  inSuperposition = false;
+  levelWon = false;
+  allLevelsCleared = false;
+  particles = [];
+
+  agentA = new Agent(currentLevel.start.x, currentLevel.start.y, '#00f0ff');
+  agentB = null;
+  activeAgent = agentA;
+
+  document.getElementById('levelName').textContent = currentLevel.name;
+  updateQuantumHUD();
+  showMessage(currentLevel.desc, 220);
+}
+
+function resetCurrentLevel() {
+  playSound('die');
+  initLevel(currentLevelIndex);
+}
+
+function updateQuantumHUD() {
+  const badge = document.getElementById('quantumState');
+  if (inSuperposition) {
+    badge.textContent = "状态：叠加态 |Ψ⟩ = (|0⟩ + |1⟩) / √2 (虚影已锚定)";
+    badge.style.color = "var(--magenta)";
+  } else {
+    badge.textContent = "状态：单一实在态 |0⟩";
+    badge.style.color = "var(--cyan)";
+  }
+}
+
+// 切换量子叠加态 [Q]
+function toggleSuperposition() {
+  if (levelWon) return;
+
+  if (!inSuperposition) {
+    // 激活叠加态：在当前脚下留下稳定量子虚影，替自己压住踏板！
+    inSuperposition = true;
+    agentB = new Agent(agentA.x, agentA.y, '#ff0077');
+    agentB.isStationaryShadow = true; // 虚影锚定在原地
+    playSound('split');
+    addParticles(agentA.x + 10, agentA.y + 16, '#ff0077', 20);
+    showMessage("【叠加态展开】量子虚影已留在原地压住机关！本体可继续行动。", 140);
+  } else {
+    // 玩家主动收回叠加态
+    inSuperposition = false;
+    addParticles(agentB.x + 10, agentB.y + 16, '#ff0077', 15);
+    agentB = null;
+    playSound('split');
+    showMessage("【主动相干重构】收回量子虚影，恢复单一实在态。", 100);
+  }
+  updateQuantumHUD();
+}
+
+// 观测探照灯引发被动坍缩
+function triggerObservationCollapse() {
+  if (!inSuperposition || !agentB) return;
+  playSound('collapse');
+
+  // 虚影因被观测而发生坍缩湮灭
+  addParticles(agentB.x + 10, agentB.y + 16, '#ff0077', 35);
+  agentB = null;
+  inSuperposition = false;
+  updateQuantumHUD();
+  showMessage("⚠️【探照灯观测触发坍缩！】叠加态消散，踏板上的虚影消失了，机关复位！", 150);
+}
+
+function showMessage(text, frames = 180) {
+  messageBanner = text;
+  bannerTimer = frames;
+}
+
+const camerasEnabled = true;
+
+// --- 主循环 ---
+function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+function update() {
+  if (levelWon) return;
+
+  const gravity = 0.38;
+
+  // 更新特工 A
+  agentA.update(gravity, currentLevel.platforms);
+
+  // 更新特工 B（如果在叠加态）
+  if (inSuperposition && agentB) {
+    agentB.update(gravity, currentLevel.platforms);
+  }
+
+  // 尖刺陷阱检查
+  for (let p of currentLevel.platforms) {
+    if (p.isSpike) {
+      if (checkAABB(agentA, p)) {
+        playSound('die');
+        addParticles(agentA.x + 10, agentA.y + 16, '#f85149', 25);
+        showMessage("💥 触碰尖刺！实体在起点重新凝聚...", 90);
+        agentA.x = currentLevel.start.x;
+        agentA.y = currentLevel.start.y;
+        agentA.vx = 0;
+        agentA.vy = 0;
+        if (inSuperposition && agentB) {
+          agentB = null;
+          inSuperposition = false;
+          updateQuantumHUD();
+        }
+        return;
+      }
+    }
+  }
+
+  // 按钮踏板逻辑
+  for (let btn of currentLevel.buttons) {
+    const onA = checkAABB(agentA, btn);
+    const onB = inSuperposition && agentB && checkAABB(agentB, btn);
+    btn.pressed = onA || onB;
+  }
+
+  // 门状态更新：双踏板同时触发时，大门持久解锁开启！
+  for (let d of currentLevel.doors) {
+    const allReqPressed = d.reqButtons.every(reqId => {
+      const b = currentLevel.buttons.find(btn => btn.id === reqId);
+      return b && b.pressed;
+    });
+
+    if (allReqPressed && d.isClosed) {
+      d.isClosed = false; // 成功解锁大门！
+      playSound('win');
+      addParticles(d.x + d.w/2, d.y + d.h/2, '#3fb950', 30);
+      showMessage("🔓 双重踏板验证通过！密室大门已永久解锁开启！冲向出口！", 140);
+    }
+  }
+
+  // 探照灯扫射与观测周期逻辑（支持周期性休眠与免死保护）
+  for (let cam of currentLevel.cameras) {
+    if (!cam.cycleTimer) cam.cycleTimer = 0;
+    cam.cycleTimer = (cam.cycleTimer + 1) % 360;
+
+    // 0 - 200 帧 (3.3秒): 完全休眠关灯，无红光，安全通行！
+    cam.isSleeping = cam.cycleTimer < 200;
+    // 200 - 250 帧 (0.8秒): 充能黄色预警
+    cam.isWarning = cam.cycleTimer >= 200 && cam.cycleTimer < 250;
+    // 250 - 360 帧 (1.8秒): 红光开启短暂扫射
+    cam.isActive = cam.cycleTimer >= 250;
+
+    if (cam.isActive) {
+      cam.angle += cam.speed * cam.dir;
+      if (Math.abs(cam.angle) > cam.range / 2) cam.dir *= -1;
+    }
+
+    if (camerasEnabled && cam.isActive && inSuperposition) {
+      const spottedA = isInsideCameraBeam(agentA, cam);
+      const spottedB = agentB && isInsideCameraBeam(agentB, cam);
+      if (spottedA || spottedB) {
+        triggerObservationCollapse();
+      }
+    }
+  }
+
+  // 胜利终点检查
+  const atExitA = checkAABB(agentA, currentLevel.exit);
+  const atExitB = inSuperposition && agentB && checkAABB(agentB, currentLevel.exit);
+  if (atExitA || atExitB) {
+    levelWon = true;
+    playSound('win');
+    playSound('applause'); // 响起全场热烈掌声！
+    addParticles(currentLevel.exit.x + 20, currentLevel.exit.y + 35, '#ffb703', 60);
+    addParticles(currentLevel.exit.x + 20, currentLevel.exit.y + 35, '#00f0ff', 40);
+    addParticles(currentLevel.exit.x + 20, currentLevel.exit.y + 35, '#ff0077', 40);
+
+    if (currentLevelIndex < LEVELS.length - 1) {
+      showMessage("🎉 啪啪啪！全场掌声雷动！关卡完美突破！", 140);
+      setTimeout(() => {
+        initLevel(currentLevelIndex + 1);
+      }, 2200);
+    } else {
+      // 全部通关！触发终极胜利结算
+      allLevelsCleared = true;
+      showMessage("🏆 恭喜通关！特工成功突破全部量子密室！", 9999);
+    }
+  }
+
+  // 更新粒子
+  for (let i = particles.length - 1; i >= 0; i--) {
+    let pt = particles[i];
+    pt.x += pt.vx;
+    pt.y += pt.vy;
+    pt.life -= pt.decay;
+    if (pt.life <= 0) particles.splice(i, 1);
+  }
+
+  if (bannerTimer > 0) bannerTimer--;
+}
+
+// 检查特工是否在探照灯扇形光锥内
+function isInsideCameraBeam(agent, cam) {
+  if (!camerasEnabled || cam.isSleeping || cam.isWarning) return false;
+  // 绝对安全区：左侧起点屋 (x < 240) 与 右侧二楼踏板区 (x > 460) 物理免疫，绝不扫描！
+  if (agent.x < 240 || agent.x > 460) return false;
+
+  const ax = agent.x + agent.w / 2;
+  const ay = agent.y + agent.h / 2;
+  const dx = ax - cam.x;
+  const dy = ay - cam.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist > cam.length) return false;
+
+  // 计算特工相对于摄像头的角度（向下为 0 弧度，向右为正）
+  const angleToAgent = Math.atan2(dx, dy);
+  const diff = Math.abs(angleToAgent - cam.angle);
+  const beamHalfAngle = 0.22; // 极窄角度，只扫中间过道
+  return diff < beamHalfAngle;
+}
+
+// --- 渲染引擎 ---
+function render() {
+  ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+  // 绘制科技背景网格
+  ctx.strokeStyle = 'rgba(35, 51, 84, 0.25)';
+  ctx.lineWidth = 1;
+  const gridSize = 40;
+  for (let x = 0; x < WIDTH; x += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, HEIGHT);
+    ctx.stroke();
+  }
+  for (let y = 0; y < HEIGHT; y += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(WIDTH, y);
+    ctx.stroke();
+  }
+
+  // 绘制探照灯（观测者之眼）
+  for (let cam of currentLevel.cameras) {
+    const halfAngle = 0.22;
+    ctx.save();
+    ctx.translate(cam.x, cam.y);
+
+    if (!camerasEnabled) {
+      // 探照灯被玩家手动禁用关闭
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(-12, -10, 24, 12);
+      ctx.beginPath();
+      ctx.arc(0, 2, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🛡️ DISABLED (已停用)', 0, -16);
+      ctx.restore();
+      continue;
+    }
+
+    if (cam.isSleeping) {
+      // 探照灯处于周期休眠中（关灯，安全通行！）
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-12, -10, 24, 12);
+      ctx.fillStyle = '#38bdf8';
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(0, 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('💤 SNOOZING (安全通行)', 0, -16);
+      ctx.restore();
+      continue;
+    }
+
+    if (cam.isWarning) {
+      // 探照灯即将启动预警
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-12, -10, 24, 12);
+      ctx.fillStyle = '#ffb703';
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = '#ffb703';
+      ctx.beginPath();
+      ctx.arc(0, 2, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffb703';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠️ CHARGING...', 0, -16);
+      ctx.restore();
+      continue;
+    }
+
+    // 探照灯激活射击中（红光）
+    ctx.rotate(cam.angle);
+
+    // 探照光锥渐变填充
+    const beamGrad = ctx.createRadialGradient(0, 0, 10, 0, cam.length, cam.length);
+    beamGrad.addColorStop(0, 'rgba(255, 0, 77, 0.45)');
+    beamGrad.addColorStop(0.7, 'rgba(255, 0, 77, 0.20)');
+    beamGrad.addColorStop(1, 'rgba(255, 0, 77, 0.01)');
+
+    ctx.fillStyle = beamGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, cam.length, Math.PI / 2 - halfAngle, Math.PI / 2 + halfAngle);
+    ctx.closePath();
+    ctx.fill();
+
+    // 探照灯两侧激光轮廓线
+    ctx.strokeStyle = 'rgba(255, 0, 77, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = '#ff0055';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(Math.PI / 2 - halfAngle) * cam.length, Math.sin(Math.PI / 2 - halfAngle) * cam.length);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(Math.PI / 2 + halfAngle) * cam.length, Math.sin(Math.PI / 2 + halfAngle) * cam.length);
+    ctx.stroke();
+
+    // 摄像头本体
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(-12, -10, 24, 12);
+    ctx.fillStyle = '#ff0055';
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = '#ff0055';
+    ctx.beginPath();
+    ctx.arc(0, 2, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff0077';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔴 OBSERVING', 0, -16);
+
+    ctx.restore();
+  }
+
+  // 绘制平台与尖刺
+  for (let p of currentLevel.platforms) {
+    if (p.isSpike) {
+      // 尖刺渲染
+      ctx.fillStyle = '#f85149';
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = '#f85149';
+      const teeth = Math.floor(p.w / 14);
+      for (let i = 0; i < teeth; i++) {
+        ctx.beginPath();
+        ctx.moveTo(p.x + i * 14, p.y + p.h);
+        ctx.lineTo(p.x + (i + 0.5) * 14, p.y);
+        ctx.lineTo(p.x + (i + 1) * 14, p.y + p.h);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.fillStyle = p.color || '#1b263b';
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.strokeStyle = '#273854';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(p.x, p.y, p.w, p.h);
+    }
+  }
+
+  // 绘制踏板按钮
+  for (let btn of currentLevel.buttons) {
+    ctx.save();
+    ctx.fillStyle = btn.color;
+    ctx.shadowBlur = btn.pressed ? 16 : 4;
+    ctx.shadowColor = btn.color;
+    const h = btn.pressed ? 3 : btn.h;
+    const y = btn.pressed ? btn.y + (btn.h - 3) : btn.y;
+    ctx.fillRect(btn.x, y, btn.w, h);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px sans-serif';
+    ctx.fillText(btn.label, btn.x + 8, btn.y - 4);
+    ctx.restore();
+  }
+
+  // 绘制门与能量锁
+  for (let d of currentLevel.doors) {
+    ctx.save();
+    if (d.isClosed) {
+      // 密室厚重实心激光防盗门
+      ctx.fillStyle = d.color;
+      ctx.shadowBlur = 16;
+      ctx.shadowColor = d.color;
+      ctx.fillRect(d.x, d.y, d.w, d.h);
+
+      // 门上锁芯与能量条
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(d.x + 3, d.y + 10, d.w - 6, d.h - 20);
+
+      // 警示红斑与文字
+      ctx.fillStyle = '#ff0055';
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = '#ff0055';
+      for (let y = d.y + 20; y < d.y + d.h - 20; y += 18) {
+        ctx.fillRect(d.x + 5, y, d.w - 10, 6);
+      }
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffb703';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.save();
+      ctx.translate(d.x + d.w / 2, d.y + d.h / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('🔒 LOCKED', 0, 4);
+      ctx.restore();
+    } else {
+      // 大门开启：缩入天花板，呈现安全通行绿色虚线
+      ctx.strokeStyle = '#3fb950';
+      ctx.shadowBlur = 14;
+      ctx.shadowColor = '#3fb950';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(d.x, d.y, d.w, d.h);
+
+      ctx.fillStyle = 'rgba(63, 185, 80, 0.15)';
+      ctx.fillRect(d.x, d.y, d.w, d.h);
+
+      ctx.fillStyle = '#3fb950';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('OPEN', d.x + d.w / 2, d.y - 6);
+    }
+    ctx.restore();
+  }
+
+  // 绘制终点传送信标 (Exit)
+  const ex = currentLevel.exit;
+  ctx.save();
+  ctx.strokeStyle = '#ffb703';
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = '#ffb703';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(ex.x + 10, ex.y + 10, ex.w - 20, ex.h - 10);
+
+  // 门内流光
+  ctx.fillStyle = 'rgba(255, 183, 3, 0.2)';
+  ctx.fillRect(ex.x + 10, ex.y + 10, ex.w - 20, ex.h - 10);
+  ctx.fillStyle = '#ffb703';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText("EXIT", ex.x + ex.w / 2, ex.y + 4);
+  ctx.restore();
+
+  // 绘制特工 (A 与 B)
+  agentA.draw(ctx, inSuperposition);
+  if (inSuperposition && agentB) {
+    agentB.draw(ctx, true);
+
+    // 绘制二者之间的量子纠缠引力线
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 0, 119, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(agentA.x + 10, agentA.y + 16);
+    ctx.lineTo(agentB.x + 10, agentB.y + 16);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 绘制粒子
+  for (let pt of particles) {
+    ctx.save();
+    ctx.globalAlpha = pt.life;
+    ctx.fillStyle = pt.color;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = pt.color;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // 顶部提示横幅
+  if (bannerTimer > 0) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(19, 27, 46, 0.88)';
+    ctx.strokeStyle = 'var(--border)';
+    ctx.lineWidth = 1;
+    ctx.fillRect(WIDTH / 2 - 280, 16, 560, 36);
+    ctx.strokeRect(WIDTH / 2 - 280, 16, 560, 36);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(messageBanner, WIDTH / 2, 38);
+    ctx.restore();
+  }
+
+  // 终极通关全屏胜利结算弹窗 (Game Clear Victory Screen)
+  if (allLevelsCleared) {
+    ctx.save();
+    // 半透明深邃赛博磨砂背景
+    ctx.fillStyle = 'rgba(9, 13, 22, 0.88)';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    // 结算发光金边卡片
+    const boxW = 540, boxH = 320;
+    const boxX = (WIDTH - boxW) / 2;
+    const boxY = (HEIGHT - boxH) / 2;
+
+    ctx.fillStyle = '#131b2e';
+    ctx.strokeStyle = '#ffb703';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = '#ffb703';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+    ctx.shadowBlur = 0;
+
+    // 奖杯图标与大标题
+    ctx.fillStyle = '#ffb703';
+    ctx.font = '42px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🏆', WIDTH / 2, boxY + 65);
+
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('全部密室突破！闯关大成功！', WIDTH / 2, boxY + 115);
+
+    // 科普评价与致敬
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText('恭喜特工！你已成功掌握【量子叠加态】与【规避观测】法则！', WIDTH / 2, boxY + 160);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('“自然界不是经典的，如果你想征服自然，你最好用量子力学的方式。”', WIDTH / 2, boxY + 195);
+    ctx.fillText('— 理查德·费曼 (Richard Feynman)', WIDTH / 2, boxY + 220);
+
+    // 重新挑战提示按钮
+    ctx.fillStyle = 'rgba(255, 183, 3, 0.2)';
+    ctx.strokeStyle = '#ffb703';
+    ctx.lineWidth = 1.5;
+    ctx.fillRect(WIDTH / 2 - 110, boxY + 248, 220, 40);
+    ctx.strokeRect(WIDTH / 2 - 110, boxY + 248, 220, 40);
+
+    ctx.fillStyle = '#ffb703';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('🔄 点击此处从头再玩', WIDTH / 2, boxY + 273);
+
+    ctx.restore();
+  }
+}
+
+// 监听通关弹窗点击“从头再玩”
+canvas.addEventListener('click', (e) => {
+  if (!allLevelsCleared) return;
+  const rect = canvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const boxY = (HEIGHT - 320) / 2;
+
+  // 检查是否点击了重新开始按钮
+  if (clickX >= WIDTH/2 - 110 && clickX <= WIDTH/2 + 110 &&
+      clickY >= boxY + 248 && clickY <= boxY + 288) {
+    allLevelsCleared = false;
+    initLevel(0);
+    playSound('jump');
+  }
+});
+
+// 启动第一关
+initLevel(0);
+loop();
+</script>
+</body>
+</html>
